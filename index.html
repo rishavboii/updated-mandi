@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mandi Connect - Live WhatsApp & AI Voice Guide</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Alpine.js Core -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <!-- Socket.io Client for Live WhatsApp Sync -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+        .pulse-ring {
+            animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans" x-data="agriApp()">
+
+    <!-- TOP NAVIGATION -->
+    <header class="bg-emerald-700 text-white shadow-md sticky top-0 z-40">
+        <div class="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <span class="text-2xl">🌾</span>
+                <h1 class="text-xl font-bold tracking-tight" x-text="t('appTitle')">Mandi Connect</h1>
+            </div>
+            
+            <div class="flex items-center space-x-4">
+                <!-- Live Connection Badge -->
+                <div class="flex items-center gap-1.5 text-xs bg-emerald-800 px-2.5 py-1 rounded-full border border-emerald-600">
+                    <span class="w-2 h-2 rounded-full" :class="socketConnected ? 'bg-green-400 animate-pulse' : 'bg-red-400'"></span>
+                    <span x-text="socketConnected ? 'WhatsApp Sync Active' : 'Offline'"></span>
+                </div>
+
+                <!-- Language Selector -->
+                <select x-model="currentLang" @change="changeLanguage()" class="bg-emerald-800 text-white text-sm rounded-lg px-3 py-1.5 border border-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-400">
+                    <option value="en-US">English</option>
+                    <option value="hi-IN">हिंदी (Hindi)</option>
+                    <option value="pa-IN">ਪੰਜਾਬੀ (Punjabi)</option>
+                    <option value="mr-IN">मराठी (Marathi)</option>
+                    <option value="te-IN">తెలుగు (Telugu)</option>
+                </select>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN CONTAINER -->
+    <main class="max-w-6xl mx-auto px-4 py-6">
+
+        <!-- WHATSAPP SIMULATION CONTROLS -->
+        <div class="bg-emerald-950 text-white p-4 rounded-xl mb-6 shadow-md flex flex-wrap items-center justify-between gap-4 border border-emerald-800">
+            <div>
+                <h3 class="font-bold text-sm flex items-center gap-2 text-emerald-300">
+                    <span>💬 WhatsApp Automation Trigger</span>
+                </h3>
+                <p class="text-xs text-slate-300">Simulate real-time tokens auto-generated when farmers text the WhatsApp Bot.</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <button @click="simulateWhatsAppMessage('Ramesh Kumar', 'Book 50 quintal Wheat')" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-3 py-2 rounded font-semibold transition">
+                    + Msg: "50 Qtl Wheat"
+                </button>
+                <button @click="simulateWhatsAppMessage('Harpreet Singh', 'Cut token 120 quintal Paddy')" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-3 py-2 rounded font-semibold transition">
+                    + Msg: "120 Qtl Paddy"
+                </button>
+            </div>
+        </div>
+
+        <!-- TAB NAVIGATION -->
+        <nav class="flex border-b border-slate-200 mb-6 bg-white rounded-t-lg shadow-sm">
+            <button @click="activeTab = 'portal'" :class="activeTab === 'portal' ? 'border-emerald-600 text-emerald-600 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700'" class="flex-1 py-3 px-4 text-center border-b-2 font-medium text-sm transition" x-text="t('tabToken')">
+                Token Registration
+            </button>
+            <button @click="activeTab = 'queue'" :class="activeTab === 'queue' ? 'border-emerald-600 text-emerald-600 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700'" class="flex-1 py-3 px-4 text-center border-b-2 font-medium text-sm transition" x-text="t('tabQueue')">
+                Live Queue
+            </button>
+            <button @click="activeTab = 'scan'" :class="activeTab === 'scan' ? 'border-emerald-600 text-emerald-600 font-bold' : 'border-transparent text-slate-500 hover:text-slate-700'" class="flex-1 py-3 px-4 text-center border-b-2 font-medium text-sm transition" x-text="t('tabScan')">
+                Scanner & Verification
+            </button>
+        </nav>
+
+        <!-- TAB 1: FORM REGISTRATION -->
+        <section x-show="activeTab === 'portal'" x-cloak class="space-y-6">
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                <h2 class="text-lg font-bold text-slate-800 mb-4" x-text="t('formHeading')">Generate Gate Pass Token</h2>
+
+                <form @submit.prevent="generateToken('pwa')" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1" x-text="t('lblFarmerName')">Farmer Name</label>
+                        <input type="text" x-model="form.name" required class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="e.g. Ramesh Kumar">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1" x-text="t('lblGovtId')">Government ID Type</label>
+                        <select x-model="form.idType" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none">
+                            <option value="Aadhaar">Aadhaar Card</option>
+                            <option value="PAN">PAN Card</option>
+                            <option value="VoterID">Voter ID</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1" x-text="t('lblCrop')">Crop Type</label>
+                        <select x-model="form.crop" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none">
+                            <option value="Wheat (Gehun)">Wheat (Gehun)</option>
+                            <option value="Paddy (Dhan)">Paddy (Dhan)</option>
+                            <option value="Mustard (Sarson)">Mustard (Sarson)</option>
+                            <option value="Pulses (Dal)">Pulses (Dal)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1" x-text="t('lblWeight')">Estimated Weight (Quintals)</label>
+                        <input type="number" x-model="form.weight" required class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="e.g. 50">
+                    </div>
+
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-semibold text-slate-600 uppercase mb-1" x-text="t('lblMandi')">Mandi Hub Location</label>
+                        <select x-model="form.mandi" class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none">
+                            <option value="Central APMC Yard - Hub 01">Central APMC Yard - Hub 01</option>
+                            <option value="North Grain Hub - Gate 03">North Grain Hub - Gate 03</option>
+                        </select>
+                    </div>
+
+                    <div class="md:col-span-2 mt-2">
+                        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 rounded-lg shadow transition" x-text="t('btnSubmitToken')">
+                            Generate Delivery Slot Token
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <!-- TAB 2: LIVE QUEUE TABLE -->
+        <section x-show="activeTab === 'queue'" x-cloak class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <h2 class="text-lg font-bold text-slate-800 mb-4" x-text="t('queueHeading')">Live Mandi Queue</h2>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm border-collapse">
+                    <thead>
+                        <tr class="bg-slate-100 text-slate-600 uppercase text-xs">
+                            <th class="p-3">Token ID</th>
+                            <th class="p-3">Channel</th>
+                            <th class="p-3">Farmer</th>
+                            <th class="p-3">Crop</th>
+                            <th class="p-3">Weight</th>
+                            <th class="p-3">Status</th>
+                            <th class="p-3">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        <template x-for="(item, index) in queue" :key="item.id">
+                            <tr :class="item.channel === 'WhatsApp Bot' ? 'bg-emerald-50/80 font-semibold' : ''">
+                                <td class="p-3 font-mono text-emerald-700" x-text="item.id"></td>
+                                <td class="p-3">
+                                    <span :class="item.channel === 'WhatsApp Bot' ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'" class="px-2 py-0.5 rounded text-xs font-bold" x-text="item.channel"></span>
+                                </td>
+                                <td class="p-3" x-text="item.name"></td>
+                                <td class="p-3" x-text="item.crop"></td>
+                                <td class="p-3" x-text="item.weight + ' Qtl'"></td>
+                                <td class="p-3">
+                                    <span class="bg-amber-100 text-amber-800 px-2.5 py-1 rounded-full text-xs font-semibold" x-text="item.stage"></span>
+                                </td>
+                                <td class="p-3">
+                                    <button @click="advanceStage(index)" class="text-xs bg-slate-800 text-white px-2 py-1 rounded hover:bg-slate-700">
+                                        Next Stage →
+                                    </button>
+                                </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- TAB 3: SCANNER -->
+        <section x-show="activeTab === 'scan'" x-cloak class="bg-white p-6 rounded-xl shadow-sm border border-slate-200 max-w-xl mx-auto">
+            <h2 class="text-lg font-bold text-slate-800 mb-4 text-center" x-text="t('scanHeading')">Gate Pass Verification Scanner</h2>
+            <div class="flex gap-2 mb-4">
+                <input type="text" x-model="scanInput" placeholder="Enter Token ID (e.g. AFE-WA-8821)" class="flex-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none">
+                <button @click="processScan()" class="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 font-semibold text-sm">Verify Token</button>
+            </div>
+
+            <div x-show="scannedResult" class="p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <h4 class="font-bold text-slate-800 border-b pb-2 mb-2">Verification Details</h4>
+                <div class="space-y-1 text-sm">
+                    <p><strong>Token ID:</strong> <span x-text="scannedResult?.id"></span></p>
+                    <p><strong>Farmer Name:</strong> <span x-text="scannedResult?.name"></span></p>
+                    <p><strong>Crop Type:</strong> <span x-text="scannedResult?.crop"></span></p>
+                    <p><strong>Weight:</strong> <span x-text="scannedResult?.weight + ' Quintals'"></span></p>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- FLOATING VOICE ASSISTANT -->
+    <div class="fixed bottom-6 right-6 z-50 flex flex-col items-end">
+        <div x-show="aiSpeechBubble" x-transition x-cloak class="mb-3 max-w-sm bg-slate-900 text-white p-4 rounded-2xl shadow-xl text-sm border border-slate-700 relative">
+            <div class="flex justify-between items-start mb-1">
+                <span class="text-xs text-emerald-400 font-bold">🤖 Voice Copilot</span>
+                <button @click="aiSpeechBubble = ''" class="text-slate-400 hover:text-white text-xs">✕</button>
+            </div>
+            <p x-text="aiSpeechBubble" class="leading-snug"></p>
+        </div>
+
+        <button @click="toggleVoiceAssistant()" 
+                :class="isListening ? 'bg-red-600 pulse-ring' : 'bg-emerald-600 hover:bg-emerald-700'"
+                class="w-16 h-16 rounded-full text-white flex items-center justify-center shadow-2xl transition-all duration-300 focus:outline-none">
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path>
+            </svg>
+        </button>
+    </div>
+
+    <!-- APPLICATION CONTROLLER -->
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('agriApp', () => ({
+                activeTab: 'portal',
+                currentLang: 'en-US',
+                isListening: false,
+                aiSpeechBubble: '',
+                socketConnected: false,
+                socket: null,
+                scanInput: '',
+                scannedResult: null,
+
+                form: { name: '', idType: 'Aadhaar', crop: 'Wheat (Gehun)', weight: '', mandi: 'Central APMC Yard - Hub 01' },
+
+                queue: [
+                    { id: 'AFE-PWA-8821', channel: 'Web App', name: 'Suresh Patel', crop: 'Paddy (Dhan)', weight: 40, stage: 'Waiting Entry' }
+                ],
+
+                i18n: {
+                    'en-US': { appTitle: 'Mandi Connect', tabToken: 'Token Registration', tabQueue: 'Live Queue', tabScan: 'Scanner', formHeading: 'Generate Delivery Slot Token', lblFarmerName: 'Farmer Full Name', lblGovtId: 'Government ID', lblCrop: 'Crop Type', lblWeight: 'Weight (Quintals)', lblMandi: 'Mandi Location', btnSubmitToken: 'Generate Token', queueHeading: 'Live Queue Stream', scanHeading: 'Verification Scanner' },
+                    'hi-IN': { appTitle: 'मंडी कनेक्ट', tabToken: 'टोकन पंजीकरण', tabQueue: 'लाइव कतार', tabScan: 'स्कैनर', formHeading: 'डिलीवरी टोकन प्राप्त करें', lblFarmerName: 'किसान का नाम', lblGovtId: 'सरकारी पहचान पत्र', lblCrop: 'फसल', lblWeight: 'वजन (क्विंटल)', lblMandi: 'मंडी स्थान', btnSubmitToken: 'टोकन जारी करें', queueHeading: 'लाइव मंडी कतार', scanHeading: 'सत्यापन स्कैनर' }
+                },
+
+                t(key) {
+                    const dict = this.i18n[this.currentLang] || this.i18n['en-US'];
+                    return dict[key] || key;
+                },
+
+                init() {
+                    this.setupSpeechRecognition();
+                    this.connectSocket();
+                },
+
+                connectSocket() {
+                    // Connects to local or remote WebSocket server
+                    this.socket = io('http://localhost:3000', { autoConnect: false });
+                    this.socket.connect();
+
+                    this.socket.on('connect', () => { this.socketConnected = true; });
+                    this.socket.on('disconnect', () => { this.socketConnected = false; });
+
+                    // Auto-append WhatsApp token broadcast
+                    this.socket.on('whatsapp_token_created', (newToken) => {
+                        this.queue.unshift(newToken);
+                        this.speakText("New WhatsApp Token Received");
+                    });
+                },
+
+                setupSpeechRecognition() {
+                    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                    if (!SpeechRecognition) return;
+
+                    this.recognition = new SpeechRecognition();
+                    this.recognition.continuous = false;
+                    this.recognition.onresult = (event) => this.processVoiceCommand(event.results[0][0].transcript);
+                    this.recognition.onend = () => { this.isListening = false; };
+                },
+
+                toggleVoiceAssistant() {
+                    if (!this.recognition) return alert('Speech API unavailable');
+                    if (this.isListening) {
+                        this.recognition.stop();
+                    } else {
+                        this.recognition.lang = this.currentLang;
+                        this.recognition.start();
+                        this.isListening = true;
+                        this.aiSpeechBubble = "Listening... Say 'Open Queue' or 'Set weight to 40'";
+                    }
+                },
+
+                processVoiceCommand(text) {
+                    const query = text.toLowerCase();
+                    let responseMsg = '';
+
+                    if (query.includes('queue') || query.includes('कतार')) {
+                        this.activeTab = 'queue';
+                        responseMsg = 'Navigating to Live Queue.';
+                    } else if (query.includes('form') || query.includes('token') || query.includes('टोकन')) {
+                        this.activeTab = 'portal';
+                        responseMsg = 'Opening Token Form.';
+                    } else if (query.includes('weight') || query.includes('क्विंटल')) {
+                        const match = query.match(/\d+/);
+                        if (match) {
+                            this.form.weight = match[0];
+                            this.activeTab = 'portal';
+                            responseMsg = `Weight set to ${match[0]} quintals.`;
+                        }
+                    } else {
+                        responseMsg = `Received: "${text}". Try asking to open Queue or Form.`;
+                    }
+
+                    this.aiSpeechBubble = responseMsg;
+                    this.speakText(responseMsg);
+                },
+
+                speakText(text) {
+                    if (!('speechSynthesis' in window)) return;
+                    window.speechSynthesis.cancel();
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.lang = this.currentLang;
+                    window.speechSynthesis.speak(utterance);
+                },
+
+                generateToken(channel) {
+                    const newToken = {
+                        id: 'AFE-' + channel.toUpperCase() + '-' + Math.floor(1000 + Math.random() * 9000),
+                        channel: 'Web App',
+                        name: this.form.name || 'Ramesh Kumar',
+                        crop: this.form.crop,
+                        weight: this.form.weight || 50,
+                        stage: 'Waiting Entry'
+                    };
+                    this.queue.unshift(newToken);
+                },
+
+                simulateWhatsAppMessage(name, text) {
+                    const mockToken = {
+                        id: 'AFE-WA-' + Math.floor(1000 + Math.random() * 9000),
+                        channel: 'WhatsApp Bot',
+                        name: name,
+                        crop: text.toLowerCase().includes('paddy') ? 'Paddy (Dhan)' : 'Wheat (Gehun)',
+                        weight: text.match(/\d+/)?.[0] || 50,
+                        stage: 'Waiting Entry'
+                    };
+                    this.queue.unshift(mockToken);
+                    this.speakText("WhatsApp Token Auto-Generated");
+                },
+
+                advanceStage(index) {
+                    const stages = ['Waiting Entry', 'Weighbridge Quality Test', 'Unloading Completed'];
+                    const current = stages.indexOf(this.queue[index].stage);
+                    if (current < stages.length - 1) this.queue[index].stage = stages[current + 1];
+                },
+
+                processScan() {
+                    const found = this.queue.find(item => item.id.toLowerCase() === this.scanInput.trim().toLowerCase());
+                    this.scannedResult = found || { id: this.scanInput, name: 'Ramesh Kumar', crop: 'Wheat (Gehun)', weight: 50 };
+                }
+            }));
+        });
+    </script>
+</body>
+</html>
